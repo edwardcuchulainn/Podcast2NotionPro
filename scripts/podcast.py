@@ -14,7 +14,7 @@ from config import (
     movie_properties_type_dict,
     book_properties_type_dict,
     TAG_ICON_URL,
-    TZ
+    TZ,
 )
 from utils import get_icon
 
@@ -22,7 +22,7 @@ from utils import get_icon
 headers = {
     "host": "api.xiaoyuzhoufm.com",
     "applicationid": "app.podcast.cosmos",
-    "x-jike-refresh-token": os.getenv("REFRESH_TOKEN"),
+    "x-jike-refresh-token": os.getenv("REFRESH_TOKEN").strip(),
     "x-jike-device-id": "5070e349-ba04-4c7b-a32e-13eb0fed01e7",
 }
 
@@ -147,10 +147,20 @@ def merge_podcast(list1, list2):
     return results
 
 
+def get_rss_urls(pids):
+    result = {}
+    r = requests.post("https://api.malinkang.com/api/xyz/rss", json=pids)
+    if r.ok:
+        result = r.json()
+    return result
+
+
 def insert_podcast():
     list1 = get_mileage()
     list2 = get_podcast()
     results = merge_podcast(list1, list2)
+    pids = [x.get("pid") for x in results]
+    rss = get_rss_urls(pids)
     notion_podcasts = notion_helper.get_all_podcast()
     dict = {}
     for index, result in enumerate(results):
@@ -159,6 +169,7 @@ def insert_podcast():
         podcast["Brief"] = result.get("brief")
         pid = result.get("pid")
         podcast["Pid"] = pid
+        podcast["rss"] = rss.get(result.get("pid"))
         podcast["收听时长"] = result.get("playedSeconds", 0)
         podcast["Description"] = result.get("description")
         podcast["链接"] = f"https://www.xiaoyuzhoufm.com/podcast/{result.get('pid')}"
@@ -176,9 +187,11 @@ def insert_podcast():
             old_podcast = notion_podcasts.get(pid)
             page_id = old_podcast.get("page_id")
             dict[pid] = (page_id, cover)
-            if old_podcast.get("最后更新时间") == podcast.get(
-                "最后更新时间"
-            ) and old_podcast.get("收听时长") == podcast.get("收听时长"):
+            if (
+                old_podcast.get("最后更新时间") == podcast.get("最后更新时间")
+                and old_podcast.get("收听时长") == podcast.get("收听时长")
+                and old_podcast.get("rss") == podcast.get("rss")
+            ):
                 continue
         print(
             f"正在同步 = {result.get('title')}，共{len(results)}个播客，当前是第{index+1}个"
@@ -233,7 +246,10 @@ def get_month_from_notion():
     filter = {
         "and": [
             {"property": "收听时长", "number": {"is_empty": True}},
-            {"property": "日期", "date": {"before": pendulum.now(tz=TZ).replace(day=1).to_date_string()}},
+            {
+                "property": "日期",
+                "date": {"before": pendulum.now(tz=TZ).replace(day=1).to_date_string()},
+            },
         ]
     }
     return notion_helper.query(
@@ -293,8 +309,7 @@ def insert_episode(episodes, d):
             if old_episode.get("状态") == "听过":
                 episode["日期"] = old_episode.get("日期")
             if (
-                old_episode.get("状态") == "在听"
-                and old_episode.get("状态") == episode.get("状态")
+                old_episode.get("状态") == episode.get("状态")
                 and old_episode.get("喜欢") == episode.get("喜欢")
                 and old_episode.get("收听进度") == episode.get("收听进度")
                 and old_episode.get("日期") == episode.get("日期")

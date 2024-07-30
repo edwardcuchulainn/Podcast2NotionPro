@@ -43,10 +43,15 @@ def get_dir():
     )
     response = requests.post(url, headers=headers)
     if response.status_code == 200:
-        data = response.json().get("data")
-
-        for i in data:
-            results.extend(dir_list(i.get("dir").get("id")))
+        r = response.json()
+        success = r.get("success")
+        errorMsg = r.get("errorMsg")
+        if success:
+            data = r.get("data")
+            for i in data:
+                results.extend(dir_list(i.get("dir").get("id")))
+        else:
+            print(f"请求失败：{errorMsg}")
     else:
         print("请求失败：", response.status_code)
     return results
@@ -328,28 +333,26 @@ def get_author_avatar(author):
 
 if __name__ == "__main__":
     notion_helper = NotionHelper()
-    headers["cookie"] = os.getenv("COOKIE")
+    headers["cookie"] = os.getenv("COOKIE").strip()
     filter = {
         "and": [
             {"property": "语音转文字状态", "status": {"does_not_equal": "Done"}},
             {"property": "语音转文字", "checkbox": {"equals": True}},
         ]
     }
-    #TODO 删除同步失败的item
-    episode_list = notion_helper.query_all_by_filter(
+    episodes = notion_helper.query_all_by_filter(
         notion_helper.episode_database_id, filter=filter
     )
-    episode_dict = {
-        utils.get_property_value(x.get("properties").get("标题")): x
-        for x in episode_list
-    }
     results = get_dir()
-    for i in results:
-        title = i.get("recordTitle")
+    results = {
+        x.get("recordTitle"):x.get("genRecordId")
+        for x in results
+    }
+    for episode in episodes:
+        episode_properties = episode.get("properties")
+        title = utils.get_property_value(episode_properties.get("标题"))
         children = []
-        if title in episode_dict:
-            episode = episode_dict.get(title)
-            episode_properties = episode.get("properties")
+        if title in results:
             episode_page_id = episode.get("id")
             audio_url = utils.get_property_value(episode_properties.get("音频"))
             podcast = utils.get_property_value(episode_properties.get("Podcast"))
@@ -358,7 +361,7 @@ if __name__ == "__main__":
                 .get("properties")
                 .get("播客")
             )
-            transId = i.get("genRecordId")
+            transId = results.get(title)
             cover = episode.get("cover").get("external").get("url")
             children.append(utils.get_heading(2, "音频"))
             player_url = f"https://notion-music.malinkang.com/player?url={urllib.parse.quote(audio_url)}&name={urllib.parse.quote(title)}&cover={urllib.parse.quote(cover)}&artist={urllib.parse.quote(podcast)}"
@@ -393,3 +396,5 @@ if __name__ == "__main__":
                 page_id=episode_page_id,
                 properties=properties,
             )
+        else:
+            print(f"未搜索到《{title}》，请检查你是否已经转写成功")
